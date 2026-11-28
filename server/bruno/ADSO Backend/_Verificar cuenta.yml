@@ -1,0 +1,15 @@
+info:
+  name: " Verificar cuenta"
+  type: http
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/dev/users/117297eb-680f-4a30-b93e-334a93162f42/verify"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

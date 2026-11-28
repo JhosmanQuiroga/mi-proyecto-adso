@@ -1,3 +1,4 @@
+// server/src/repositories/UserRepository.js
 import { pool } from '../config/db.js';
 import { AppError } from '../middlewares/errorHandler.js';
 
@@ -26,6 +27,7 @@ async function createUser({ email, passwordHash, role = 'user' }) {
     throw err; // Cualquier otro error lo maneja el errorHandler global (500)
   }
 }
+
 /**
  * Busca un usuario por correo. Devuelve null si no existe.
  */
@@ -39,6 +41,7 @@ async function findByEmail(email) {
   );
   return rows[0] ?? null;
 }
+
 /**
  * Busca un usuario por su UUID. Devuelve null si no existe.
  */
@@ -51,3 +54,43 @@ async function findById(id) {
   );
   return rows[0] ?? null;
 }
+
+/**
+ * Activa la cuenta y elimina sus tokens de verificación en UNA transacción.
+ * Devuelve el usuario activado, o null si no existe o ya estaba verificado.
+ *
+ * ⚠️ Una transacción necesita UN MISMO cliente: pool.query('BEGIN') no sirve,
+ *    porque cada pool.query puede ejecutarse en una conexión distinta del pool.
+ */
+async function verifyUser(id) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `UPDATE users
+          SET is_verified = TRUE
+        WHERE id = $1 AND is_verified = FALSE
+        RETURNING id, email, role, is_verified, created_at, updated_at`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    // Tokens de un solo uso: al activar la cuenta ya no deben servir más
+    await client.query('DELETE FROM verification_tokens WHERE user_id = $1', [id]);
+
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {}); // Si falla algo, se deshace TODO
+    throw err;
+  } finally {
+    client.release(); // Devolver SIEMPRE la conexión al pool (si no, el pool se agota)
+  }
+}
+
+export const UserRepository = { createUser, findByEmail, findById, verifyUser };
